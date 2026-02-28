@@ -9,26 +9,64 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        mistral: {
+          red: "#E10500",
+          "orange-dark": "#FA500F",
+          orange: "#FF8205",
+          "orange-light": "#FFAF00",
+          yellow: "#FFD800",
+        },
+        beige: {
+          light: "#FFFAEB",
+          medium: "#FFF0C3",
+          dark: "#E9E2CB",
+        },
+        dark: {
+          DEFAULT: "#000000",
+          tinted: "#1E1E1E",
+          surface: "#2A2A2A",
+          border: "#3A3A3A",
+        },
         samvad: {
-          bg: "#0a0a0f",
-          surface: "#12121a",
-          border: "#1e1e2e",
-          accent: "#6366f1",
-          blue: "#3b82f6",
-          green: "#22c55e",
-          red: "#ef4444",
-          text: "#e2e8f0",
-          muted: "#64748b",
+          bg: "#FFFAEB",
+          surface: "#FFF0C3",
+          border: "#E9E2CB",
+          accent: "#FF8205",
+          "accent-hover": "#FA500F",
+          text: "#000000",
+          muted: "#1E1E1E",
+          red: "#E10500",
+          yellow: "#FFD800",
         },
       },
+      fontFamily: {
+        sans: ["var(--font-inter)", "Inter", "sans-serif"],
+      },
+      borderRadius: {
+        none: "0px",
+        soft: "4px",
+        sm: "6px",
+        md: "8px",
+        lg: "10px",
+        xl: "14px",
+      },
       animation: {
-        "pulse-slow": "pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite",
-        breathe: "breathe 4s ease-in-out infinite",
+        "skeleton-pulse": "skeleton-pulse 1s ease-in-out infinite",
+        "block-blink": "block-blink 1s step-end infinite",
+        "cursor-pulse": "cursor-pulse 1s step-end infinite",
       },
       keyframes: {
-        breathe: {
-          "0%, 100%": { transform: "scale(1)", opacity: "0.8" },
-          "50%": { transform: "scale(1.05)", opacity: "1" },
+        "skeleton-pulse": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.5" },
+        },
+        "block-blink": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0" },
+        },
+        "cursor-pulse": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0" },
         },
       },
     },

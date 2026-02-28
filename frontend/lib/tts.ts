@@ -126,7 +126,9 @@ class ElevenLabsTTS {
   private async _sendText(text: string) {
     if (!text.trim()) return;
     await this.connect();
-    this.ws?.send(JSON.stringify({ text }));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ text }));
+    }
   }
 
   /** Buffer streaming tokens, flushing at sentence boundaries */
@@ -146,13 +148,17 @@ class ElevenLabsTTS {
       this.tokenBuffer = "";
     }
     // Send EOS signal
-    this.ws?.send(JSON.stringify({ text: "" }));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ text: "" }));
+    }
   }
 
   /** Speak a complete text string */
   async speak(text: string) {
     await this._sendText(text);
-    this.ws?.send(JSON.stringify({ text: "" }));
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({ text: "" }));
+    }
   }
 
   /** Interrupt playback immediately */

@@ -13,11 +13,11 @@
 - [x] `backend/app/routers/conversation.py` — POST /api/conversation + GET /api/briefing + WS /api/ws/{session_id}
 - [x] `backend/app/models/schemas.py` — ConversationRequest/Response, StoryBrief, BriefingResponse, WSMessage/Response, HealthResponse
 - [x] `frontend/` — Next.js 14 + TypeScript directory structure
-- [x] `frontend/package.json`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.js`, `next.config.ts`
-- [x] `frontend/.env.local` — placeholder env vars (NOT committed)
+- [x] `frontend/package.json`, `tsconfig.json`, `tailwind.config.ts`, `postcss.config.js`, `next.config.mjs`
+- [x] `frontend/.env` — placeholder env vars (NOT committed)
 - [x] `frontend/.gitignore`
-- [x] `frontend/app/globals.css` — Tailwind + custom scrollbar + dark theme vars
-- [x] `frontend/app/layout.tsx` — root layout with metadata + mobile viewport
+- [x] `frontend/app/globals.css` — Tailwind + custom animations + theme vars
+- [x] `frontend/app/layout.tsx` — root layout with Inter font, mobile viewport, centered 430px container
 
 ## PHASE 2 — Backend WebSocket & API Structure ✅ DONE
 - [x] `/api/ws/{session_id}` — full-duplex WebSocket
@@ -31,13 +31,15 @@
 
 ## PHASE 3 — Speech-to-Text (Step 6) ✅ DONE
 - [x] `frontend/lib/stt.ts`
-  - `PixtralSTT` — WS to Pixtral endpoint; streams 250ms MediaRecorder chunks as binary; onPartial/onFinal callbacks
-  - `BrowserSTT` — continuous `SpeechRecognition` with interim results fallback
-  - `STTClient` — auto-picks Pixtral if `NEXT_PUBLIC_PIXTRAL_WS_URL` set, auto-falls back on failure
+  - `AudioCapture` — captures mic with echo cancellation + noise suppression
+  - Resamples native sample rate → 16kHz PCM (Voxtral API requirement)
+  - Float32 → Int16 (s16le) → base64 chunks streamed via `ws.sendAudioChunk()`
 - [x] `frontend/components/MicButton.tsx`
-  - Push-to-talk via mouse + touch + Space key
-  - Visual states: breathing (idle), pulsing blue (listening), green (speaking), red (error)
-  - Outer ping ring animation when actively listening
+  - Tap-to-toggle mic (not hold-to-talk)
+  - 80px orange circle with Lucide Mic icon
+  - Visual states: ring glow (listening), disabled (thinking)
+  - Spacebar support for push-to-talk
+  - `size` prop: `lg` (80px, main screen) / `md` (64px, article mode)
 
 ## PHASE 4 — Text-to-Speech (Step 7) ✅ DONE
 - [x] `frontend/lib/tts.ts`
@@ -50,24 +52,52 @@
   - `TTSClient` — auto-picks ElevenLabs if API key + voice ID both set
   - `getFillerPhrase()` — rotating filler strings for RAG latency gap
 
-## PHASE 5 — Frontend Voice UI (Step 8) ✅ DONE
-- [x] `frontend/app/page.tsx` — main conversation page
+## PHASE 5 — Frontend Voice UI (Step 8) ✅ DONE (Redesigned)
+- [x] `frontend/app/page.tsx` — main conversation screen
+  - Figma-based redesign: teleprompter display, not chat bubbles
   - State machine: `idle → listening → thinking → speaking → error`
-  - WS session callbacks → TTS token streaming + transcript bubbles
+  - **Teleprompter**: shows only the current sentence being spoken (AI) or transcribed (user)
+  - **Ambient background image**: top half of screen, fades to white; appears when AI starts speaking
+  - **Pixel waveform**: 38-column mirrored grid, yellow→red gradient, 40ms updates
+  - **Mic button**: 80px orange circle, tap-to-toggle, centered at bottom
+  - WS session callbacks → TTS token streaming
   - AudioContext analyser feeds live mic data to Waveform
-  - Interrupt on mic-press-while-speaking (TTS.stop + WS.sendInterrupt)
-  - Entity chip tap → `"What is X?"` auto-send
-  - Text input fallback (Enter to send)
-  - Partial turns tracked by index ref (no unnecessary re-renders)
+  - Interrupt on mic-tap-while-speaking (TTS.stop + WS.sendInterrupt)
+  - No text input (voice-only design)
 - [x] `frontend/components/Waveform.tsx`
-  - Canvas RAF loop: real analyser data when listening/speaking; sine wave animation otherwise
-  - Color-coded: blue=listening, purple=thinking, green=speaking, grey=idle
-- [x] `frontend/components/Transcript.tsx`
-  - Chat bubbles (user right, AI left), auto-scroll, streaming dot indicator, empty state hint
+  - DOM-based pixel grid (not canvas): 38 columns × 10 rows (5 mirrored)
+  - Color gradient: yellow (#FFE000) at tips → amber (#FF8800) at center → red (#CC0000) at tips
+  - Responds to real audio data (listening/speaking) or animated patterns (idle/thinking)
+  - 40ms update interval with 0.6 easing interpolation
+- [x] `frontend/components/Transcript.tsx` (now Teleprompter)
+  - Shows only current sentence (extracted from latest turn via sentence-boundary splitting)
+  - User speech in orange, AI speech in dark text
+  - Pulsing orange cursor while streaming
+  - Empty state: "Tap the mic and ask about today's news"
 - [x] `frontend/components/EntityChips.tsx`
-  - Horizontally scrollable tappable pills; deduped in page.tsx (max 8)
-- [x] `frontend/components/StatusBar.tsx`
-  - Story progress dots + "Story N / M" counter; animated state indicator dot
+  - Restyled: uppercase, tracking-wide, 10px font, subtle border
+  - Used in ArticleMode screen (removed from main conversation screen)
+- [x] `frontend/components/MicButton.tsx`
+  - 80px rounded orange button with white Lucide Mic icon
+  - Tap-to-toggle (not hold-to-talk)
+  - "Tap to speak" / "Listening..." label below
+  - Supports `lg` and `md` size variants
+- [x] ~~`frontend/components/StatusBar.tsx`~~ — **Removed** (no longer in design)
+
+## PHASE 5.5 — New Screens ✅ DONE
+- [x] `frontend/app/settings/page.tsx` — Settings screen
+  - Profile card (avatar, name, email)
+  - News Preferences: Topics, Sources, Briefing Length (segmented control)
+  - Voice: AI Voice, Speech Speed (slider), Auto-listen (toggle)
+  - About: How Samvād Works, Send Feedback
+  - Version text at bottom
+  - Static/placeholder (no state persistence yet)
+- [x] `frontend/app/article/page.tsx` — Article Mode screen
+  - URL input with "Go" button
+  - Article preview card with entity chips
+  - 3 AI prompt suggestions with orange left-border accent
+  - Smaller mic button at bottom
+  - Static/placeholder (no backend wiring yet)
 
 ## PHASE 6 — Deployment ✅ DONE
 - [x] `backend/Procfile` — Railway start command
@@ -81,7 +111,7 @@
 ### Step 1: Fill in API keys
 ```
 backend/.env            → MISTRAL_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
-frontend/.env.local     → NEXT_PUBLIC_ELEVENLABS_API_KEY, NEXT_PUBLIC_ELEVENLABS_VOICE_ID
+frontend/.env           → NEXT_PUBLIC_ELEVENLABS_API_KEY, NEXT_PUBLIC_ELEVENLABS_VOICE_ID
 ```
 
 ### Step 2: Start backend
@@ -113,14 +143,8 @@ curl -X POST http://localhost:8000/api/conversation \
 cd frontend
 npm install
 npm run dev
-# Open http://localhost:3000 — hold mic or type a message
+# Open http://localhost:3000 — tap mic button to speak
 ```
-
-### All Devashish's services are now implemented:
-- `services/llm.py` — LLM client fully wired ✅
-- `services/news.py` — news pipeline fully wired ✅
-- `services/rag.py` — RAG pipeline fully wired ✅
-- `services/conversation.py` — session manager + intent router fully wired ✅
 
 ### To deploy:
 ```bash
@@ -129,7 +153,6 @@ cd backend
 railway login && railway up
 # Railway dashboard env vars to set:
 #   MISTRAL_API_KEY, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
-#   ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID
 #   CORS_ORIGINS=https://your-frontend.vercel.app
 
 # Frontend → Vercel
@@ -139,7 +162,6 @@ vercel --prod
 #   NEXT_PUBLIC_API_URL=https://your-backend.up.railway.app
 #   NEXT_PUBLIC_WS_URL=wss://your-backend.up.railway.app
 #   NEXT_PUBLIC_ELEVENLABS_API_KEY, NEXT_PUBLIC_ELEVENLABS_VOICE_ID
-#   NEXT_PUBLIC_PIXTRAL_WS_URL (if using Pixtral)
 ```
 
 ### Production WebSocket note:
@@ -150,9 +172,15 @@ Vercel does NOT proxy WebSocket connections. The frontend connects directly to t
 
 ## File Map
 ```
-mistral hackathon/
+Samavad/
 ├── plan.md                          # Original team plan
 ├── SHREYASH_TASKS.md                # This file
+├── DEVASHISH_TASKS.md               # ML/AI pipeline tasks
+├── mistral-design-guidelines.md     # Mistral design system reference
+├── figma-src/                       # Figma design source files
+│   ├── app/pages/                   # Screen designs (Conversation, Article, Settings)
+│   ├── app/components/ui/           # shadcn/ui component library
+│   └── styles/                      # Theme CSS + design tokens
 ├── backend/
 │   ├── .env                         # 🔑 API keys (not committed)
 │   ├── .gitignore
@@ -165,34 +193,37 @@ mistral hackathon/
 │       ├── routers/
 │       │   ├── health.py            # GET /api/health
 │       │   └── conversation.py      # POST /api/conversation, GET /api/briefing, WS /api/ws/{id}
-│       ├── services/                # ← Devashish ✅ all done
+│       ├── services/
 │       │   ├── llm.py               # Bedrock + Mistral API, streaming, intent classification
 │       │   ├── news.py              # RSS fetch, dedup, spoken summarization, 30-min cache
 │       │   ├── rag.py               # Wikidata + Wikipedia parallel fetch, entity cache
-│       │   └── conversation.py      # Session store, intent router, handle_message, stream_handle_message
-│       └── prompts/                 # ← Devashish ✅ all done
+│       │   ├── stt.py               # Speech-to-text service
+│       │   └── conversation.py      # Session store, intent router, handle_message
+│       └── prompts/
 │           ├── system.py            # Voice-first system prompt + build_system_prompt()
-│           └── intent.py            # Bedrock + Mistral tool specs, INTENT_SYSTEM_PROMPT
+│           └── intent.py            # Intent classification prompt + tool specs
 └── frontend/
-    ├── .env.local                   # 🔑 API keys (not committed)
+    ├── .env                         # 🔑 API keys (not committed)
     ├── .gitignore
-    ├── vercel.json                  # Vercel config
     ├── package.json
     ├── tsconfig.json
-    ├── tailwind.config.ts
-    ├── next.config.ts
+    ├── tailwind.config.ts           # Mistral color palette + design tokens
+    ├── next.config.mjs
+    ├── public/
+    │   └── news-bg.jpg              # Default background image
     ├── app/
-    │   ├── globals.css
-    │   ├── layout.tsx
-    │   └── page.tsx                 # Main voice UI + state machine
+    │   ├── globals.css              # Tailwind + animations (cursor-pulse, fade-in)
+    │   ├── layout.tsx               # Inter font, 430px container, dark outer bg
+    │   ├── page.tsx                 # Main conversation screen (teleprompter + waveform)
+    │   ├── settings/page.tsx        # Settings screen
+    │   └── article/page.tsx         # Article mode screen
     ├── components/
-    │   ├── MicButton.tsx            # Push-to-talk button
-    │   ├── Transcript.tsx           # Conversation bubbles
-    │   ├── Waveform.tsx             # Audio canvas visualization
-    │   ├── EntityChips.tsx          # Tappable entity pills
-    │   └── StatusBar.tsx            # State + story indicator
+    │   ├── MicButton.tsx            # Tap-to-toggle orange mic button
+    │   ├── Transcript.tsx           # Teleprompter (current sentence only)
+    │   ├── Waveform.tsx             # Pixel grid audio visualizer (38×10)
+    │   └── EntityChips.tsx          # Styled entity pills (article mode)
     └── lib/
-        ├── api.ts                   # HTTP client + WSSession
-        ├── stt.ts                   # Pixtral STT + browser fallback
+        ├── api.ts                   # HTTP client + WSSession + types
+        ├── stt.ts                   # AudioCapture (16kHz PCM resampling)
         └── tts.ts                   # ElevenLabs TTS + browser fallback
 ```

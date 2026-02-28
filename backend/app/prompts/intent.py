@@ -10,56 +10,6 @@ Intents:
   ARTICLE_MODE  — User pastes a URL or references a specific article (stretch)
 """
 
-INTENT_TOOL_SPEC = {
-    "toolSpec": {
-        "name": "classify_intent",
-        "description": (
-            "Classify the user's intent from their utterance and conversation history. "
-            "Return the most appropriate intent along with any relevant entity or topic."
-        ),
-        "inputSchema": {
-            "json": {
-                "type": "object",
-                "properties": {
-                    "intent": {
-                        "type": "string",
-                        "enum": [
-                            "BRIEFING",
-                            "ENTITY_QUERY",
-                            "FOLLOW_UP",
-                            "NAVIGATION",
-                            "CHITCHAT",
-                            "ARTICLE_MODE",
-                        ],
-                        "description": "The classified intent of the user's message.",
-                    },
-                    "entity": {
-                        "type": "string",
-                        "description": (
-                            "For ENTITY_QUERY: the exact name of the person, organisation, "
-                            "place, or concept being asked about. Empty string otherwise."
-                        ),
-                    },
-                    "topic": {
-                        "type": "string",
-                        "description": (
-                            "For FOLLOW_UP: a brief description of the topic being followed up on. "
-                            "Empty string for other intents."
-                        ),
-                    },
-                    "navigation_direction": {
-                        "type": "string",
-                        "enum": ["next", "previous", "first", "last", "specific"],
-                        "description": "For NAVIGATION intent only: which direction to navigate.",
-                    },
-                },
-                "required": ["intent"],
-            }
-        },
-    }
-}
-
-# Mistral-native SDK tool format (for direct API fallback)
 INTENT_TOOL_MISTRAL = {
     "type": "function",
     "function": {

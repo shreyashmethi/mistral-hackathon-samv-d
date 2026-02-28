@@ -1,44 +1,56 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import { Mic } from "lucide-react";
 
 interface MicButtonProps {
   state: "idle" | "listening" | "thinking" | "speaking" | "error";
   onPressStart: () => void;
   onPressEnd: () => void;
   disabled?: boolean;
+  size?: "lg" | "md";
+  label?: string;
 }
 
-export default function MicButton({ state, onPressStart, onPressEnd, disabled }: MicButtonProps) {
-  const [pressing, setPressing] = useState(false);
+export default function MicButton({
+  state,
+  onPressStart,
+  onPressEnd,
+  disabled,
+  size = "lg",
+  label = "Tap to speak",
+}: MicButtonProps) {
+  const isListening = state === "listening";
   const pressRef = useRef(false);
 
-  const handleStart = () => {
-    if (disabled || pressing) return;
-    setPressing(true);
-    pressRef.current = true;
-    onPressStart();
-  };
+  const handleTap = useCallback(() => {
+    if (disabled) return;
+    if (isListening) {
+      pressRef.current = false;
+      onPressEnd();
+    } else {
+      pressRef.current = true;
+      onPressStart();
+    }
+  }, [disabled, isListening, onPressStart, onPressEnd]);
 
-  const handleEnd = () => {
-    if (!pressRef.current) return;
-    setPressing(false);
-    pressRef.current = false;
-    onPressEnd();
-  };
-
-  // Keyboard: Space to push-to-talk
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       if (e.code === "Space" && !e.repeat) {
         e.preventDefault();
-        handleStart();
+        if (!pressRef.current) {
+          pressRef.current = true;
+          onPressStart();
+        }
       }
     };
     const up = (e: KeyboardEvent) => {
       if (e.code === "Space") {
         e.preventDefault();
-        handleEnd();
+        if (pressRef.current) {
+          pressRef.current = false;
+          onPressEnd();
+        }
       }
     };
     window.addEventListener("keydown", down);
@@ -47,79 +59,37 @@ export default function MicButton({ state, onPressStart, onPressEnd, disabled }:
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  });
+  }, [onPressStart, onPressEnd]);
 
-  const ringColor = {
-    idle: "ring-samvad-border",
-    listening: "ring-samvad-blue",
-    thinking: "ring-samvad-accent",
-    speaking: "ring-samvad-green",
-    error: "ring-samvad-red",
-  }[state];
-
-  const bgColor = pressing
-    ? "bg-samvad-blue"
-    : state === "error"
-    ? "bg-samvad-red/20"
-    : state === "speaking"
-    ? "bg-samvad-green/20"
-    : "bg-samvad-surface";
-
-  const pulseClass =
-    state === "listening" || pressing ? "animate-pulse" : state === "idle" ? "animate-breathe" : "";
+  const sizeClasses = size === "lg" ? "w-20 h-20" : "w-16 h-16";
+  const iconSize = size === "lg" ? 32 : 24;
 
   return (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex flex-col items-center gap-2">
       <button
-        onMouseDown={handleStart}
-        onMouseUp={handleEnd}
-        onMouseLeave={handleEnd}
-        onTouchStart={(e) => { e.preventDefault(); handleStart(); }}
-        onTouchEnd={(e) => { e.preventDefault(); handleEnd(); }}
+        onClick={handleTap}
         disabled={disabled}
-        aria-label={pressing ? "Release to send" : "Hold to speak (or hold Space)"}
+        aria-label={isListening ? "Tap to stop" : "Tap to speak"}
         className={`
-          relative w-24 h-24 rounded-full
-          ring-4 ${ringColor} ring-offset-2 ring-offset-samvad-bg
-          ${bgColor} ${pulseClass}
+          ${sizeClasses} rounded-full
+          bg-[#FF8205] hover:bg-[#FA500F]
           flex items-center justify-center
+          shadow-xl shadow-orange-500/20
           transition-all duration-200 select-none
           disabled:opacity-40 disabled:cursor-not-allowed
           active:scale-95
+          ${isListening ? "ring-4 ring-[#FF8205]/30" : ""}
         `}
       >
-        {/* Mic icon */}
-        <MicIcon pressing={pressing} state={state} />
-
-        {/* Outer glow when listening */}
-        {(pressing || state === "listening") && (
-          <span className="absolute inset-0 rounded-full bg-samvad-blue/20 animate-ping" />
-        )}
+        <Mic size={iconSize} strokeWidth={2.5} className="text-white" />
       </button>
 
-      <p className="text-xs text-samvad-muted select-none">
-        {pressing ? "Listening… release to send" : "Hold to speak · Space"}
+      <p
+        className="text-[10px] font-bold uppercase tracking-widest select-none"
+        style={{ color: "#1E1E1E", opacity: 0.3 }}
+      >
+        {isListening ? "Listening..." : label}
       </p>
     </div>
-  );
-}
-
-function MicIcon({ pressing, state }: { pressing: boolean; state: string }) {
-  const color =
-    pressing || state === "listening"
-      ? "#3b82f6"
-      : state === "speaking"
-      ? "#22c55e"
-      : state === "error"
-      ? "#ef4444"
-      : "#e2e8f0";
-
-  return (
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2"
-      strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2a3 3 0 0 1 3 3v7a3 3 0 0 1-6 0V5a3 3 0 0 1 3-3Z" />
-      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-      <line x1="12" x2="12" y1="19" y2="22" />
-    </svg>
   );
 }
