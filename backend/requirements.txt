@@ -1,8 +1,8 @@
-fastapi==0.111.0
+fastapi
 uvicorn[standard]==0.29.0
 websockets==12.0
 python-dotenv==1.0.1
-pydantic==2.7.1
+pydantic
 httpx==0.27.0
 boto3==1.34.101
 mistralai==1.0.1
