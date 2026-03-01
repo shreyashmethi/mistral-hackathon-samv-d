@@ -272,3 +272,118 @@ async def explain_entity(
         if wiki:
             return wiki[:250] + ("…" if len(wiki) > 250 else "")
         return f"Sorry, there isn't much information available about {entity_name} right now."
+
+
+# ─────────────────────────────────────────────────────────────
+# Hybrid RAG — Step 5
+# ─────────────────────────────────────────────────────────────
+
+async def retrieve_context(
+    query: str,
+    session_entities: dict[str, str] | None = None,
+    n_articles: int = 4,
+) -> str:
+    """
+    Hybrid retrieval: vector search + knowledge graph traversal.
+    Returns a formatted context string ready to be injected into the system prompt.
+
+    1. Vector search ChromaDB for semantically relevant article chunks.
+    2. KG entity search: find entities mentioned in the query.
+    3. KG neighborhood: for each found entity, pull connected entities.
+    4. Assemble context block.
+    """
+    import asyncio as _asyncio
+
+    # Run vector search and entity lookup in parallel
+    vector_task = _asyncio.create_task(_vector_search(query, n_articles))
+    kg_task = _asyncio.create_task(_kg_context(query))
+    vector_chunks, kg_text = await _asyncio.gather(vector_task, kg_task)
+
+    parts: list[str] = []
+
+    if vector_chunks:
+        parts.append("## Relevant News Articles")
+        parts.append(vector_chunks)
+
+    if kg_text:
+        parts.append("## Knowledge Graph Context")
+        parts.append(kg_text)
+
+    if session_entities:
+        parts.append("## Previously Explained This Session")
+        for name, explanation in list(session_entities.items())[:5]:
+            parts.append(f"- **{name}**: {explanation}")
+
+    return "\n\n".join(parts)
+
+
+async def _vector_search(query: str, n: int) -> str:
+    """Return formatted string of top article chunks from ChromaDB."""
+    try:
+        from app.services.vector_store import search_articles
+        results = await search_articles(query, n=n)
+        if not results:
+            return ""
+        lines = []
+        for r in results:
+            lines.append(
+                f"[{r['source']} | hotness={r['hotness_score']:.2f} | {r['published_at'][:10]}]\n"
+                f"{r['text']}"
+            )
+        return "\n\n".join(lines)
+    except Exception as e:
+        logger.warning("Vector search error: %s", e)
+        return ""
+
+
+async def _kg_context(query: str) -> str:
+    """Return formatted string of KG entity info for entities found in query."""
+    try:
+        from app.services.knowledge_graph import get_graph
+        kg = get_graph()
+
+        if kg.stats["nodes"] == 0:
+            return ""
+
+        # Find entities in query
+        matches = kg.search_entities(query, n=3)
+        if not matches:
+            return ""
+
+        lines = []
+        for match in matches[:2]:  # top 2 matches to avoid context bloat
+            entity_data = kg.get_entity(match["name"])
+            if not entity_data:
+                continue
+            name = entity_data.get("name", match["name"])
+            etype = entity_data.get("type", "")
+            desc = entity_data.get("description", "")
+            lines.append(f"**{name}** ({etype}): {desc}")
+
+            # Show up to 3 outgoing relationships
+            for rel in entity_data.get("outgoing", [])[:3]:
+                lines.append(f"  → {rel['type']} → {rel['target']}: {rel.get('context', '')}")
+
+        return "\n".join(lines)
+    except Exception as e:
+        logger.warning("KG context error: %s", e)
+        return ""
+
+
+async def get_entity_path_description(entity_a: str, entity_b: str) -> str:
+    """
+    Find and describe the KG path between two entities.
+    Returns a spoken-style description like 'ECB sets rates for eurozone, which trades with UK'.
+    """
+    try:
+        from app.services.knowledge_graph import get_graph
+        kg = get_graph()
+        path = kg.find_path(entity_a, entity_b)
+        if not path:
+            return ""
+        if len(path) == 1:
+            return f"{entity_a} and {entity_b} appear to be the same entity in the knowledge graph."
+        return "Connection: " + " → ".join(path)
+    except Exception as e:
+        logger.warning("Path description failed: %s", e)
+        return ""

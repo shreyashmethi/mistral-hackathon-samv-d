@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(pip show mistralai)",
+      "Bash(pip install \"mistralai==1.12.4\" -q)",
+      "Bash(python -c \"from mistralai.extra.realtime import AudioFormat; print\\(''mistralai.extra.realtime OK''\\)\")",
+      "Bash(find \"/Users/shreyashmethi/Desktop/minerva/mistral hackathon/backend\" -name \"*.pyc\" -delete)",
+      "Bash(pip install apscheduler==3.10.4 chromadb==0.5.20 sentence-transformers==3.3.1 networkx==3.3 --quiet)",
+      "Bash(python -c \":*)",
+      "Bash(python tests/test_rag_flow.py)"
+    ]
+  }
+}
