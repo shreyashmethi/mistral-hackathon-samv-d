@@ -3,10 +3,198 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Settings, Mic } from "lucide-react";
+import { motion } from "framer-motion";
 import Waveform from "@/components/Waveform";
 import { AudioCapture } from "@/lib/stt";
 import { TTSClient } from "@/lib/tts";
 import { WSSession, newSessionId, api, type AppState, type Story } from "@/lib/api";
+
+// ─── Line-breaking utility ────────────────────────────────────────────────────
+
+const WORDS_PER_LINE = 6;
+
+function splitIntoLines(text: string): string[] {
+  const words = text.split(" ").filter((w) => w.length > 0);
+  const lines: string[] = [];
+  let current: string[] = [];
+
+  for (let i = 0; i < words.length; i++) {
+    current.push(words[i]);
+
+    const isBreakPoint =
+      current.length >= WORDS_PER_LINE - 1 &&
+      (words[i].endsWith(",") ||
+        words[i].endsWith(".") ||
+        words[i].endsWith(";") ||
+        words[i].endsWith(":") ||
+        (i + 1 < words.length &&
+          [
+            "that", "which", "while", "but", "and", "with", "from",
+            "the", "a", "to", "in", "at", "by", "for", "as",
+          ].includes(words[i + 1]?.toLowerCase())));
+
+    if (current.length >= WORDS_PER_LINE + 2 || isBreakPoint) {
+      lines.push(current.join(" "));
+      current = [];
+    }
+  }
+
+  if (current.length > 0) {
+    lines.push(current.join(" "));
+  }
+
+  return lines;
+}
+
+// ─── Teleprompter Component ───────────────────────────────────────────────────
+
+function LyricsTeleprompter({
+  lines,
+  currentLineIndex,
+  currentWordInLine,
+}: {
+  lines: string[];
+  currentLineIndex: number;
+  currentWordInLine: number;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeLineRef = useRef<HTMLDivElement>(null);
+
+  // Butter-smooth scroll using lerp
+  const scrollTarget = useRef(0);
+  const scrollCurrent = useRef(0);
+  const rafId = useRef<number>(0);
+
+  useEffect(() => {
+    if (activeLineRef.current && containerRef.current) {
+      const activeLine = activeLineRef.current;
+      const containerHeight = containerRef.current.clientHeight;
+      scrollTarget.current = Math.max(
+        0,
+        activeLine.offsetTop - containerHeight * 0.5
+      );
+    }
+  }, [currentLineIndex]);
+
+  useEffect(() => {
+    const tick = () => {
+      scrollCurrent.current +=
+        (scrollTarget.current - scrollCurrent.current) * 0.08;
+      if (containerRef.current) {
+        containerRef.current.scrollTop = scrollCurrent.current;
+      }
+      rafId.current = requestAnimationFrame(tick);
+    };
+    rafId.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId.current);
+  }, []);
+
+  const LOOKAHEAD = 1;
+
+  return (
+    <div
+      ref={containerRef}
+      className="relative overflow-hidden"
+      style={{ maxHeight: "100%" }}
+    >
+      <div className="flex flex-col gap-5 py-12">
+        {lines.map((line, lineIdx) => {
+          const isCurrent = lineIdx === currentLineIndex;
+          const isPast = lineIdx < currentLineIndex;
+          const isUpcoming =
+            lineIdx > currentLineIndex &&
+            lineIdx <= currentLineIndex + LOOKAHEAD;
+          const isFarFuture = lineIdx > currentLineIndex + LOOKAHEAD;
+
+          if (isFarFuture) return null;
+
+          let opacity = 0;
+          if (isCurrent) {
+            opacity = 1;
+          } else if (isPast) {
+            const distance = currentLineIndex - lineIdx;
+            if (distance === 1) opacity = 0.25;
+            else opacity = 0;
+          } else if (isUpcoming) {
+            opacity = 0.2;
+          }
+
+          const fontSize = isCurrent ? "1.25rem" : "1.05rem";
+          const fontWeight = isCurrent ? 700 : 500;
+          const lineHeight = isCurrent ? 1.35 : 1.4;
+
+          if (isPast && currentLineIndex - lineIdx > 1) return null;
+
+          const lineWords = line.split(" ");
+
+          return (
+            <motion.div
+              key={lineIdx}
+              ref={isCurrent ? activeLineRef : undefined}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity, y: 0 }}
+              transition={{
+                duration: 0.8,
+                ease: [0.25, 0.1, 0.25, 1.0],
+                opacity: { duration: 1.0, ease: [0.25, 0.1, 0.25, 1.0] },
+              }}
+              style={{
+                fontSize,
+                fontWeight,
+                lineHeight,
+                color: "#1E1E1E",
+                willChange: "opacity, transform",
+                transition:
+                  "font-size 0.6s cubic-bezier(0.25, 0.1, 0.25, 1.0), font-weight 0.6s cubic-bezier(0.25, 0.1, 0.25, 1.0)",
+              }}
+            >
+              {isCurrent ? (
+                <span>
+                  {lineWords.map((word, wordIdx) => {
+                    const isSpoken = wordIdx <= currentWordInLine;
+                    const isActive = wordIdx === currentWordInLine;
+                    return (
+                      <motion.span
+                        key={wordIdx}
+                        animate={{
+                          opacity: isSpoken ? 1 : 0.15,
+                          filter: isSpoken ? "blur(0px)" : "blur(0.5px)",
+                        }}
+                        transition={{
+                          duration: 0.4,
+                          ease: [0.25, 0.1, 0.25, 1.0],
+                        }}
+                        style={{
+                          display: "inline-block",
+                          marginRight: "0.28em",
+                          color: isActive ? "#FF8205" : "#1E1E1E",
+                          transition: "color 0.3s ease",
+                        }}
+                      >
+                        {word}
+                      </motion.span>
+                    );
+                  })}
+                  <motion.span
+                    className="inline-block w-[2.5px] h-5 ml-0.5 bg-[#FF8205] align-middle rounded-full"
+                    animate={{ opacity: [1, 0.2, 1] }}
+                    transition={{
+                      duration: 1.4,
+                      repeat: Infinity,
+                      ease: "easeInOut",
+                    }}
+                  />
+                </span>
+              ) : (
+                <span style={{ transition: "opacity 0.8s ease" }}>{line}</span>
+              )}
+            </motion.div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 interface Turn {
   role: "user" | "assistant";
@@ -124,6 +312,14 @@ export default function Home() {
       onStart: () => setAppState("speaking"),
       onEnd: () => setAppState("idle"),
       onError: (e) => console.warn("TTS error:", e),
+      onProgress: (charIndex) => {
+        // Convert char position → word count in the full assistant text
+        const text = assistantTextRef.current;
+        if (!text) return;
+        const prefix = text.slice(0, charIndex + 1);
+        const wordCount = prefix.split(/\s+/).filter((w) => w.length > 0).length;
+        setTotalWordsSpoken(wordCount);
+      },
     });
 
     // Fetch briefing for story metadata (image comes when AI speaks)
@@ -209,33 +405,47 @@ export default function Home() {
   const latestAssistant = [...turns].reverse().find((t) => t.role === "assistant");
   const latestUser = [...turns].reverse().find((t) => t.role === "user");
 
-  // Extract only the current (last) sentence from text
-  const getLastSentence = (text: string): string => {
-    if (!text) return "";
-    // Split into sentences at boundaries
-    const parts = text.split(/(?<=[.!?])\s+/);
-    // Return the last part (current sentence being spoken)
-    const last = parts[parts.length - 1];
-    return last || text;
-  };
+  // ─── Word-level teleprompter tracking (TTS-driven) ──────────────────────────
+  // TTS fires onProgress(charIndex) as audio plays. We convert charIndex → word count.
+  const [totalWordsSpoken, setTotalWordsSpoken] = useState(0);
+  const assistantTextRef = useRef("");
 
-  let displayText: string | null = null;
-  let isPartial = false;
-  let isUserSpeaking = false;
+  // Derive current lines from latest assistant text
+  const assistantText = latestAssistant?.text || "";
+  const teleLines = assistantText ? splitIntoLines(assistantText) : [];
+  assistantTextRef.current = assistantText;
 
-  if (appState === "listening" && latestUser) {
-    // Show what user is saying
-    displayText = latestUser.text;
-    isPartial = !!latestUser.partial;
-    isUserSpeaking = true;
-  } else if ((appState === "thinking" || appState === "speaking") && latestAssistant) {
-    // Show current AI sentence
-    displayText = getLastSentence(latestAssistant.text);
-    isPartial = !!latestAssistant.partial;
-  } else if (appState === "idle" && latestAssistant) {
-    // Show last AI sentence when idle
-    displayText = getLastSentence(latestAssistant.text);
+  let currentLine = 0;
+  let currentWord = -1;
+  if (totalWordsSpoken > 0 && teleLines.length > 0) {
+    let remaining = totalWordsSpoken;
+    for (let i = 0; i < teleLines.length; i++) {
+      const wordsInLine = teleLines[i].split(" ").length;
+      if (remaining <= wordsInLine) {
+        currentLine = i;
+        currentWord = remaining - 1;
+        break;
+      }
+      remaining -= wordsInLine;
+      if (i === teleLines.length - 1) {
+        currentLine = i;
+        currentWord = wordsInLine - 1;
+      }
+    }
   }
+
+  // Reset when a new assistant turn begins
+  useEffect(() => {
+    if (turns.length === 0) return;
+    const last = turns[turns.length - 1];
+    if (last?.role === "assistant" && last.partial && last.text.length < 20) {
+      setTotalWordsSpoken(0);
+    }
+  }, [turns]);
+
+  // Determine what mode to show
+  const showUserText = appState === "listening" && latestUser;
+  const showTeleprompter = teleLines.length > 0 && !showUserText;
 
   return (
     <div className="flex flex-col h-screen max-h-screen bg-white relative overflow-hidden font-sans">
@@ -255,8 +465,8 @@ export default function Home() {
 
       {/* ── Top Bar ── */}
       <div className="flex justify-between items-center px-6 pt-12 pb-4 z-10 relative">
-        <h1 className="text-sm font-bold tracking-widest text-[#1E1E1E] uppercase opacity-40">
-          Samvād Live
+        <h1 className="text-sm font-bold tracking-widest text-[#1E1E1E] uppercase opacity-100">
+          🦉
         </h1>
         <Link
           href="/settings"
@@ -281,22 +491,26 @@ export default function Home() {
       )}
 
       {/* ── Teleprompter Area ── */}
-      <div className="flex-1 flex flex-col justify-center px-8 pb-24 mt-[-60px] relative z-10">
-        {!displayText ? (
-          <p className="text-2xl md:text-3xl font-semibold leading-tight text-[#1E1E1E] opacity-20 text-center">
-            Tap the mic and ask about today&apos;s news
-          </p>
-        ) : (
+      <div className="flex-1 flex flex-col justify-center px-8 pb-24 relative z-10 overflow-hidden">
+        {showUserText ? (
           <div className="relative">
-            <p className={`text-2xl md:text-3xl font-semibold leading-tight ${
-              isUserSpeaking ? "text-[#FF8205]" : "text-[#1E1E1E]"
-            }`}>
-              {displayText}
-              {isPartial && (
+            <p className="text-2xl md:text-3xl font-semibold leading-tight text-[#FF8205]">
+              {latestUser!.text}
+              {latestUser!.partial && (
                 <span className="inline-block w-[3px] h-6 ml-1 bg-[#FF8205] animate-pulse align-middle" />
               )}
             </p>
           </div>
+        ) : showTeleprompter ? (
+          <LyricsTeleprompter
+            lines={teleLines}
+            currentLineIndex={currentLine}
+            currentWordInLine={currentWord}
+          />
+        ) : (
+          <p className="text-2xl md:text-3xl font-semibold leading-tight text-[#1E1E1E] opacity-20 text-center">
+            Tap the mic and ask about today&apos;s news
+          </p>
         )}
       </div>
 

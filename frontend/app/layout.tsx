@@ -5,7 +5,7 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 
 export const metadata: Metadata = {
-  title: "Samvād — Your AI News Companion",
+  title: "Samvād",
   description:
     "Voice-first AI news companion. Ask about today's news, get spoken briefings, and dive deep — all through conversation.",
   icons: { icon: "/favicon.ico" },

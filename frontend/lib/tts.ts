@@ -5,7 +5,7 @@
  * Fallback: Browser speechSynthesis API
  *
  * Usage:
- *   const tts = new TTSClient({ onStart, onEnd, onError });
+ *   const tts = new TTSClient({ onStart, onEnd, onError, onProgress });
  *   tts.speak("Hello, world!");      // speak full text
  *   tts.streamToken("Hello");        // feed tokens one-by-one (from LLM stream)
  *   tts.flushStream();               // flush remaining buffered tokens
@@ -16,6 +16,8 @@ export interface TTSCallbacks {
   onStart?: () => void;
   onEnd?: () => void;
   onError?: (error: string) => void;
+  /** Fired frequently during playback with estimated char index into sent text */
+  onProgress?: (charIndex: number) => void;
 }
 
 // Sentence boundary regex — flush buffer when we hit sentence-end punctuation
@@ -34,6 +36,14 @@ class ElevenLabsTTS {
   private callbacks: TTSCallbacks;
   private voiceId: string;
   private apiKey: string;
+
+  // Progress tracking
+  private sentTextLength = 0;         // cumulative chars sent to ElevenLabs
+  private totalAudioReceived = 0;     // cumulative seconds of audio received
+  private playedAudioDuration = 0;    // cumulative seconds of completed chunks
+  private currentChunkStartTime = 0;  // audioCtx.currentTime when current chunk started
+  private currentChunkDuration = 0;   // duration of the currently playing chunk
+  private progressRaf = 0;
 
   constructor(callbacks: TTSCallbacks) {
     this.callbacks = callbacks;
@@ -82,6 +92,7 @@ class ElevenLabsTTS {
           pcm[i] = (raw.charCodeAt(i * 2) | (raw.charCodeAt(i * 2 + 1) << 8));
         }
         const audioBuf = await this._pcmToAudioBuffer(pcm);
+        this.totalAudioReceived += audioBuf.duration;
         this.audioQueue.push(audioBuf);
         if (!this.isPlaying) this._playQueue();
       }
@@ -109,6 +120,7 @@ class ElevenLabsTTS {
   private _playQueue() {
     if (!this.audioCtx || this.audioQueue.length === 0) {
       this.isPlaying = false;
+      cancelAnimationFrame(this.progressRaf);
       this.callbacks.onEnd?.();
       return;
     }
@@ -117,14 +129,48 @@ class ElevenLabsTTS {
     const source = this.audioCtx.createBufferSource();
     source.buffer = buf;
     source.connect(this.audioCtx.destination);
-    source.onended = () => this._playQueue();
+
+    this.currentChunkStartTime = this.audioCtx.currentTime;
+    this.currentChunkDuration = buf.duration;
+    this._startProgressLoop();
+
+    source.onended = () => {
+      this.playedAudioDuration += buf.duration;
+      this._playQueue();
+    };
     source.start();
     this.callbacks.onStart?.();
+  }
+
+  /** RAF loop that interpolates progress within the current chunk */
+  private _startProgressLoop() {
+    cancelAnimationFrame(this.progressRaf);
+
+    const tick = () => {
+      if (!this.audioCtx || !this.isPlaying) return;
+
+      const elapsed = this.audioCtx.currentTime - this.currentChunkStartTime;
+      const currentPlayhead = this.playedAudioDuration + Math.min(elapsed, this.currentChunkDuration);
+
+      if (this.totalAudioReceived > 0 && this.sentTextLength > 0) {
+        const progress = Math.min(currentPlayhead / this.totalAudioReceived, 1);
+        const charIdx = Math.min(
+          Math.floor(progress * this.sentTextLength),
+          this.sentTextLength - 1
+        );
+        this.callbacks.onProgress?.(charIdx);
+      }
+
+      this.progressRaf = requestAnimationFrame(tick);
+    };
+
+    this.progressRaf = requestAnimationFrame(tick);
   }
 
   /** Send a complete sentence to ElevenLabs */
   private async _sendText(text: string) {
     if (!text.trim()) return;
+    this.sentTextLength += text.length;
     await this.connect();
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({ text }));
@@ -163,9 +209,16 @@ class ElevenLabsTTS {
 
   /** Interrupt playback immediately */
   stop() {
+    cancelAnimationFrame(this.progressRaf);
     this.audioQueue = [];
     this.isPlaying = false;
     this.tokenBuffer = "";
+    // Reset progress tracking
+    this.sentTextLength = 0;
+    this.totalAudioReceived = 0;
+    this.playedAudioDuration = 0;
+    this.currentChunkStartTime = 0;
+    this.currentChunkDuration = 0;
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.close();
       this.ws = null;
@@ -185,6 +238,7 @@ class ElevenLabsTTS {
 class BrowserTTS {
   private callbacks: TTSCallbacks;
   private tokenBuffer = "";
+  private cumulativeCharOffset = 0;
 
   constructor(callbacks: TTSCallbacks) {
     this.callbacks = callbacks;
@@ -211,17 +265,27 @@ class BrowserTTS {
 
   private _utter(text: string) {
     if (!text) return;
+    const charOffset = this.cumulativeCharOffset;
+    this.cumulativeCharOffset += text.length;
+
     const utt = new SpeechSynthesisUtterance(text);
     utt.rate = 1.05;
     utt.pitch = 1.0;
     utt.onstart = () => this.callbacks.onStart?.();
     utt.onend = () => this.callbacks.onEnd?.();
     utt.onerror = () => this.callbacks.onError?.("Browser TTS error");
+    // Word boundary events for progress tracking
+    utt.onboundary = (e) => {
+      if (e.name === "word") {
+        this.callbacks.onProgress?.(charOffset + e.charIndex);
+      }
+    };
     window.speechSynthesis.speak(utt);
   }
 
   stop() {
     this.tokenBuffer = "";
+    this.cumulativeCharOffset = 0;
     window.speechSynthesis.cancel();
   }
 }
