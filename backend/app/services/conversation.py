@@ -52,6 +52,19 @@ def _current_story(session: dict) -> dict | None:
     return None
 
 
+def _build_stories_context(session: dict) -> str:
+    """Build a context block listing all briefing stories with the current one marked."""
+    stories = session["briefing_stories"]
+    if not stories:
+        return ""
+    idx = session["current_story_index"]
+    lines = ["\n\n## All Available News Stories"]
+    for i, s in enumerate(stories):
+        marker = " [CURRENTLY DISCUSSING]" if i == idx else ""
+        lines.append(f"Story {i + 1}{marker}: {s['title']}\n{s['summary']}")
+    return "\n\n".join(lines)
+
+
 # ─────────────────────────────────────────────────────────────
 # Briefing (Step 2)
 # ─────────────────────────────────────────────────────────────
@@ -155,25 +168,17 @@ async def _handle_follow_up(session: dict, message: str) -> tuple[str, list[str]
     llm = get_client()
     current = _current_story(session)
 
-    # Hybrid RAG retrieval
+    # Hybrid RAG retrieval — pass current story so it's prioritised over vector similarity
     rag_context = ""
     try:
         rag_context = await retrieve_context(
             query=message,
             session_entities=session["entities_explained"],
+            current_story=current,
             n_articles=4,
         )
     except Exception as e:
         logger.warning("RAG retrieval failed, proceeding without: %s", e)
-
-    # Build system prompt with RAG context injected
-    current_story_context = ""
-    if current:
-        current_story_context = (
-            f"\n\nCurrent story: {current['title']}\n"
-            f"Summary: {current['summary']}\n"
-            f"Source: {current['source']}, Published: {current['published']}"
-        )
 
     system_prompt = build_system_prompt(
         has_entity_context=bool(rag_context),
@@ -183,8 +188,9 @@ async def _handle_follow_up(session: dict, message: str) -> tuple[str, list[str]
 
     if rag_context:
         system_prompt += f"\n\n{rag_context}"
-    if current_story_context:
-        system_prompt += current_story_context
+
+    # Inject all stories so the LLM knows which one the user is on
+    system_prompt += _build_stories_context(session)
 
     messages = list(session["history"]) + [{"role": "user", "content": message}]
 
@@ -196,6 +202,8 @@ async def _handle_navigation(
     session: dict, direction: str, message: str
 ) -> tuple[str, list[str]]:
     """Navigate between briefing stories."""
+    import re
+
     stories = session["briefing_stories"]
     if not stories:
         return "There are no stories loaded yet. Say 'what's happening' to get today's briefing.", []
@@ -211,6 +219,20 @@ async def _handle_navigation(
         idx = 0
     elif direction == "last":
         idx = n - 1
+    elif direction == "specific":
+        # Parse a story number from the message (e.g. "story 5", "the fifth one")
+        num_match = re.search(r'\b(\d+)\b', message)
+        ordinals = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5,
+                    "sixth": 6, "seventh": 7, "eighth": 8, "ninth": 9, "tenth": 10}
+        word_match = re.search(r'\b(' + '|'.join(ordinals) + r')\b', message.lower())
+        if num_match:
+            target = int(num_match.group(1)) - 1
+            if 0 <= target < n:
+                idx = target
+        elif word_match:
+            target = ordinals[word_match.group(1)] - 1
+            if 0 <= target < n:
+                idx = target
 
     session["current_story_index"] = idx
     story = stories[idx]
@@ -367,22 +389,17 @@ async def stream_handle_message(
 
         current = _current_story(session)
 
-        # Hybrid RAG retrieval (non-blocking; failures are silenced)
+        # Hybrid RAG retrieval — pass current story so it's prioritised over vector similarity
         rag_context = ""
         try:
             rag_context = await retrieve_context(
                 query=message,
                 session_entities=session["entities_explained"],
+                current_story=current,
                 n_articles=4,
             )
         except Exception as e:
             logger.warning("Streaming RAG retrieval failed: %s", e)
-
-        current_ctx = ""
-        if current:
-            current_ctx = (
-                f"\n\nCurrent story: {current['title']}\nSummary: {current['summary']}"
-            )
 
         system_prompt = build_system_prompt(
             has_entity_context=bool(rag_context),
@@ -391,8 +408,9 @@ async def stream_handle_message(
         )
         if rag_context:
             system_prompt += f"\n\n{rag_context}"
-        if current_ctx:
-            system_prompt += current_ctx
+
+        # Inject all stories so the LLM knows which one the user is on
+        system_prompt += _build_stories_context(session)
 
         messages = list(session["history"]) + [{"role": "user", "content": message}]
 

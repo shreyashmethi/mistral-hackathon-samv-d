@@ -183,7 +183,10 @@ async def get_entity_context(entity_name: str) -> dict:
         logger.info("Entity cache hit for '%s'", entity_name)
         return _entity_cache[cache_key]
 
-    async with httpx.AsyncClient(headers={"User-Agent": "Samvad-Bot/1.0"}) as client:
+    async with httpx.AsyncClient(headers={
+        "User-Agent": "Samvad-NewsBot/1.0 (voice-first news AI; hackathon project)",
+        "Accept": "application/json",
+    }) as client:
         wikidata_result, wikipedia_extract = await asyncio.gather(
             _search_wikidata(entity_name, client),
             _fetch_wikipedia(entity_name, client),
@@ -281,16 +284,22 @@ async def explain_entity(
 async def retrieve_context(
     query: str,
     session_entities: dict[str, str] | None = None,
+    current_story: dict | None = None,
     n_articles: int = 4,
 ) -> str:
     """
     Hybrid retrieval: vector search + knowledge graph traversal.
     Returns a formatted context string ready to be injected into the system prompt.
 
-    1. Vector search ChromaDB for semantically relevant article chunks.
-    2. KG entity search: find entities mentioned in the query.
-    3. KG neighborhood: for each found entity, pull connected entities.
-    4. Assemble context block.
+    current_story is injected first (highest priority) so the LLM always answers
+    in context of the article the user is currently on, regardless of what the
+    vector similarity search returns.
+
+    1. Inject current story (if provided) at top.
+    2. Vector search ChromaDB for semantically relevant article chunks.
+    3. KG entity search: find entities mentioned in the query.
+    4. KG neighborhood: for each found entity, pull connected entities.
+    5. Assemble context block.
     """
     import asyncio as _asyncio
 
@@ -301,8 +310,19 @@ async def retrieve_context(
 
     parts: list[str] = []
 
+    # Always put the current story first — this grounds the answer in what the user is reading
+    if current_story:
+        parts.append("## Current Story Being Discussed")
+        title = current_story.get("title", "")
+        summary = current_story.get("summary", "")
+        source = current_story.get("source", "")
+        published = current_story.get("published", "")
+        parts.append(
+            f"**{title}**\n{summary}\nSource: {source} | Published: {published}"
+        )
+
     if vector_chunks:
-        parts.append("## Relevant News Articles")
+        parts.append("## Related News Articles")
         parts.append(vector_chunks)
 
     if kg_text:
