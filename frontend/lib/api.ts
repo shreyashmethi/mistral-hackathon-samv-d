@@ -119,7 +119,12 @@ export class WSSession {
     };
 
     this.ws.onerror = () => this.callbacks.onError("WebSocket connection error");
-    this.ws.onclose = () => this.callbacks.onStateChange("idle");
+    this.ws.onclose = (event) => {
+      this.callbacks.onStateChange("idle");
+      if (event.code !== 1000 && event.code !== 1005) {
+        setTimeout(() => this.connect(), 2000);
+      }
+    };
   }
 
   sendText(text: string) {

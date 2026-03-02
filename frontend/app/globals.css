@@ -3,9 +3,13 @@
 @tailwind utilities;
 
 :root {
-  --bg: #0a0a0f;
-  --surface: #12121a;
-  --border: #1e1e2e;
+  --color-orange: #FF8205;
+  --color-orange-dark: #FA500F;
+  --bg-primary: #FFFAEB;
+  --bg-secondary: #FFF0C3;
+  --border: #E9E2CB;
+  --text-primary: #000000;
+  --text-secondary: #1E1E1E;
 }
 
 * {
@@ -18,24 +22,36 @@ html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
-  background: var(--bg);
-  color: #e2e8f0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background-color: #1a1a1a;
+  color: #000000;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
-  width: 4px;
-}
-::-webkit-scrollbar-track {
-  background: var(--surface);
-}
-::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 2px;
+  width: 0;
+  display: none;
 }
 
-/* Waveform canvas */
-canvas {
-  display: block;
+*:focus-visible {
+  outline: 3px solid #FF8205;
+  outline-offset: 2px;
+}
+
+@keyframes cursor-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.animate-cursor-pulse {
+  animation: cursor-pulse 1s step-end infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.8s ease-out forwards;
 }

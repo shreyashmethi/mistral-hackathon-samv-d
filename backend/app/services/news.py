@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 RSS_FEEDS = [
     {"url": "http://feeds.bbci.co.uk/news/rss.xml", "source": "BBC News"},
     {"url": "http://feeds.bbci.co.uk/news/world/europe/rss.xml", "source": "BBC Europe"},
-    {"url": "https://feeds.reuters.com/reuters/worldNews", "source": "Reuters"},
+    {"url": "https://feeds.npr.org/1001/rss.xml", "source": "NPR News"},
     {"url": "https://www.theguardian.com/world/rss", "source": "The Guardian"},
     {"url": "https://rss.dw.com/rdf/rss-en-all", "source": "Deutsche Welle"},
     {"url": "https://www.france24.com/en/rss", "source": "France 24"},
@@ -195,15 +195,23 @@ async def refresh_news_cache() -> list[dict]:
         if isinstance(r, list):
             all_stories.extend(r)
 
-    # Sort by recency
+    # Sort by recency initially (hotness scoring will re-sort)
     all_stories.sort(key=lambda s: s["published_dt"], reverse=True)
 
     # Deduplicate
     unique = _deduplicate(all_stories)
 
-    # Take top 5
-    top5 = unique[:5]
-    logger.info("Selected %d stories after dedup (from %d raw)", len(top5), len(all_stories))
+    # Score by hotness — use top 15 candidates so cross-source signal has enough data
+    candidates = unique[:15]
+    try:
+        from app.services.hotness import score_stories
+        candidates = score_stories(candidates)
+    except Exception as e:
+        logger.warning("Hotness scoring failed, falling back to recency: %s", e)
+
+    # Take top 5 by hotness
+    top5 = candidates[:5]
+    logger.info("Selected %d stories after dedup+hotness (from %d raw)", len(top5), len(all_stories))
 
     # Summarize in parallel (up to 5 concurrent LLM calls)
     summaries = await asyncio.gather(
@@ -218,7 +226,10 @@ async def refresh_news_cache() -> list[dict]:
             "summary": summary if isinstance(summary, str) else story["raw_summary"][:300],
             "source": story["source"],
             "published": story["published"],
+            "published_dt": story["published_dt"],
             "url": story["url"],
+            "hotness_score": story.get("hotness_score", 0.5),
+            "raw_summary": story["raw_summary"],
         })
 
     _cache["stories"] = processed

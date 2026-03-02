@@ -5,62 +5,80 @@ import { useEffect, useRef } from "react";
 export interface Turn {
   role: "user" | "assistant";
   text: string;
-  partial?: boolean; // true while still streaming
+  partial?: boolean;
 }
 
-interface TranscriptProps {
+interface TeleprompterProps {
   turns: Turn[];
 }
 
-export default function Transcript({ turns }: TranscriptProps) {
-  const bottomRef = useRef<HTMLDivElement>(null);
+export default function Teleprompter({ turns }: TeleprompterProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom as new tokens arrive
+  const latestAssistant = [...turns]
+    .reverse()
+    .find((t) => t.role === "assistant");
+
+  // Auto-scroll to keep latest text visible at the bottom of the window
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [turns]);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [latestAssistant?.text]);
 
-  if (turns.length === 0) {
+  if (!latestAssistant) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-samvad-muted text-sm text-center px-8">
-          Hold the mic button and ask about today&apos;s news.<br />
-          <span className="opacity-60">Try: &quot;What&apos;s happening in Europe today?&quot;</span>
+      <div className="flex-1 flex items-center justify-center px-8">
+        <p
+          className="text-2xl md:text-3xl font-semibold leading-tight text-center"
+          style={{ color: "#1E1E1E", opacity: 0.4 }}
+        >
+          Tap the mic and ask about today&apos;s news
         </p>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-      {turns.map((turn, i) => (
-        <div
-          key={i}
-          className={`flex ${turn.role === "user" ? "justify-end" : "justify-start"}`}
+    <div className="flex-1 relative overflow-hidden">
+      {/* Top fade mask */}
+      <div
+        className="absolute top-0 left-0 right-0 h-16 z-10 pointer-events-none"
+        style={{
+          background: "linear-gradient(to bottom, #FFFAEB, transparent)",
+        }}
+      />
+
+      {/* Scrolling text container */}
+      <div
+        ref={scrollRef}
+        className="h-full overflow-y-auto px-8 flex flex-col justify-end"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {/* Spacer to push text down initially */}
+        <div className="min-h-[40%]" />
+
+        <p
+          className="text-2xl md:text-3xl font-semibold leading-tight pb-8"
+          style={{ color: "#1E1E1E" }}
         >
-          <div
-            className={`
-              max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed
-              ${
-                turn.role === "user"
-                  ? "bg-samvad-accent text-white rounded-br-sm"
-                  : "bg-samvad-surface border border-samvad-border text-samvad-text rounded-bl-sm"
-              }
-              ${turn.partial ? "opacity-80" : ""}
-            `}
-          >
-            {turn.text}
-            {turn.partial && (
-              <span className="inline-flex gap-0.5 ml-1">
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1 h-1 bg-current rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
-      <div ref={bottomRef} />
+          {latestAssistant.text}
+          {latestAssistant.partial && (
+            <span
+              className="inline-block w-[3px] h-[0.85em] ml-1 align-baseline animate-pulse"
+              style={{ backgroundColor: "#FF8205" }}
+            />
+          )}
+        </p>
+      </div>
+
+      {/* Bottom fade mask */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-12 z-10 pointer-events-none"
+        style={{
+          background: "linear-gradient(to top, #FFFAEB, transparent)",
+        }}
+      />
     </div>
   );
 }
